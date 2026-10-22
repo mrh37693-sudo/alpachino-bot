@@ -1,143 +1,78 @@
-import os
-import logging
+import os, threading
+from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters, ConversationHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
-TOKEN = os.environ.get("BOT_TOKEN") or os.environ.get("TOKEN")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "0")) # حط ايديك هنا في Render
+TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = 1776655781
+ASK_ID, ASK_PAYMENT = range(2)
 
-# أسعارك - عدلها براحتك
+# عدل الأسعار هنا حسب سوقك
 PACKAGES = {
-    "100": {"diamonds": "100 💎", "price": "3,000 SDG"},
-    "310": {"diamonds": "310 💎", "price": "8,500 SDG"},
-    "520": {"diamonds": "520 💎", "price": "14,000 SDG"},
-    "1060": {"diamonds": "1060 💎", "price": "27,000 SDG"},
-    "2180": {"diamonds": "2180 💎", "price": "53,000 SDG"},
+    "110 💎": "6,000 جنيه",
+    "210 💎": "11,000 جنيه",
+    "530 💎": "26,000 جنيه",
+    "1080 💎": "51,000 جنيه",
+    "2200 💎": "100,000 جنيه"
 }
 
-BANKAK_INFO = """
-💳 **للدفع بنكك:**
-رقم الحساب: 1234567
-الاسم: الباتشينو
-"""
-
-ASK_ID, ASK_PAYMENT = range(2)
+app_flask = Flask(__name__)
+@app_flask.route('/')
+def home(): return "Free Fire Bot Running!"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
-    for key, pkg in PACKAGES.items():
-        keyboard.append([InlineKeyboardButton(f"{pkg['diamonds']} - {pkg['price']}", callback_data=f"buy_{key}")])
-    
-    keyboard.append([InlineKeyboardButton("📞 تواصل معنا", callback_data="contact")])
+    for pack, price in PACKAGES.items():
+        keyboard.append([InlineKeyboardButton(f"{pack} - {price}", callback_data=pack)])
+    keyboard.append([InlineKeyboardButton("💬 تواصل", url="https://t.me/YourUsername")])
     await update.message.reply_text(
-        "🔥 **أهلاً بيك في متجر الباتشينو لجواهر فري فاير** 🔥\n\n"
-        "اختر الباقة العايزها:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+        "🔥 *متجر آلباتشينو لشحن جواهر فري فاير* 🔥\n\n"
+        "💎 شحن سريع - آمن 100% - خلال 5 دقائق\n"
+        "👇 اختر الباقة:",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
     )
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def choose_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    if query.data.startswith("buy_"):
-        pkg_id = query.data.split("_")[1]
-        context.user_data["package"] = pkg_id
-        pkg = PACKAGES[pkg_id]
-        await query.message.reply_text(
-            f"اخترت: {pkg['diamonds']} بسعر {pkg['price']}\n\n"
-            f"📝 أرسل **ID حسابك في فري فاير** (الأرقام فقط):"
-        )
-        return ASK_ID
-    
-    if query.data == "contact":
-        await query.message.reply_text("تواصل واتساب: 09xxxxxxxx\nتيليجرام: @your_username")
+    context.user_data['pack'] = query.data
+    await query.message.reply_text(f"اخترت باقة *{query.data}*\n\n📝 أرسل ID فري فاير حقك:", parse_mode='Markdown')
+    return ASK_ID
 
-async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    player_id = update.message.text.strip()
-    if not player_id.isdigit():
-        await update.message.reply_text("❌ الـ ID لازم يكون أرقام فقط، حاول تاني:")
-        return ASK_ID
-    
-    context.user_data["player_id"] = player_id
-    pkg = PACKAGES[context.user_data["package"]]
-    
+async def ask_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['ff_id'] = update.message.text
     keyboard = [
-        [InlineKeyboardButton("بنكك 💳", callback_data="pay_bankak")],
-        [InlineKeyboardButton("رصيد 📱", callback_data="pay_raseed")],
+        [InlineKeyboardButton("بنكك", callback_data="bankak")],
+        [InlineKeyboardButton("رصيد", callback_data="raseed")]
     ]
-    await update.message.reply_text(
-        f"تمام! ID: `{player_id}`\nالباقة: {pkg['diamonds']}\n\n"
-        f"اختار طريقة الدفع:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text(f"تمام ID: `{update.message.text}`\nاختر الدفع:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return ASK_PAYMENT
 
-async def get_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ask_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    pkg_id = context.user_data["package"]
-    player_id = context.user_data["player_id"]
-    pkg = PACKAGES[pkg_id]
+    pay_method = query.data
+    pack = context.user_data['pack']
+    ff_id = context.user_data['ff_id']
     user = query.from_user
 
-    if query.data == "pay_bankak":
-        await query.message.reply_text(
-            f"{BANKAK_INFO}\n\n"
-            f"بعد التحويل، أرسل **صورة إشعار بنكك** هنا، وسيتم الشحن خلال 5-10 دقائق.\n\n"
-            f"تفاصيل طلبك:\n"
-            f"الباقة: {pkg['diamonds']}\n"
-            f"ID: {player_id}\n"
-            f"السعر: {pkg['price']}",
-            parse_mode="Markdown"
-        )
+    if pay_method == "bankak":
+        await query.message.reply_text("🏦 *بنكك:*\nحساب: 1234567 - محمد\nرسل الاشعار هنا ✅", parse_mode='Markdown')
     else:
-        await query.message.reply_text("لدفع بالرصيد تواصل معنا: 09xxxxxxxx")
+        await query.message.reply_text("📱 *رصيد:*\nزين: 090xxxxxxx\nرسل لقطة الشاشة هنا ✅", parse_mode='Markdown')
 
-    # رسالة ليك انت كأدمن
-    if ADMIN_ID != 0:
-        try:
-            await context.bot.send_message(
-                chat_id=ADMIN_ID,
-                text=f"🔔 **طلب جديد!**\n\n"
-                     f"من: @{user.username or user.first_name} ({user.id})\n"
-                     f"الباقة: {pkg['diamonds']}\n"
-                     f"ID اللاعب: {player_id}\n"
-                     f"السعر: {pkg['price']}\n"
-                     f"الدفع: {query.data}",
-                parse_mode="Markdown"
-            )
-        except:
-            pass
-
+    try:
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"طلب جديد 🔥\n\n👤 @{user.username} ({user.id})\n📦 {pack}\n🆔 {ff_id}\n💳 {pay_method}")
+    except: pass
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("تم الإلغاء. دوس /start تبدا تاني.")
-    return ConversationHandler.END
-
-def main():
-    if not TOKEN:
-        print("ERROR: BOT_TOKEN not set!")
-        return
-    app = ApplicationBuilder().token(TOKEN).build()
-    
-    conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(button_handler)],
-        states={
-            ASK_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_id)],
-            ASK_PAYMENT: [CallbackQueryHandler(get_payment)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=False
-    )
-    
+def run_bot():
+    app = Application.builder().token(TOKEN).build()
+    conv = ConversationHandler(entry_points=[CallbackQueryHandler(choose_pack)], states={ASK_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_id)], ASK_PAYMENT: [CallbackQueryHandler(ask_payment)]}, fallbacks=[])
     app.add_handler(CommandHandler("start", start))
     app.add_handler(conv)
-    print("Diamond store bot started...")
     app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_bot).start()
+    app_flask.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
