@@ -5,9 +5,13 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 1776655781
-ASK_ID, ASK_PAYMENT = range(2)
+app_flask = Flask(__name__)
 
-# عدل الأسعار هنا حسب سوقك
+@app_flask.route('/')
+def home():
+    return "Bot is Alive!"
+
+ASK_ID, ASK_PAYMENT = range(2)
 PACKAGES = {
     "110 💎": "6,000 جنيه",
     "210 💎": "11,000 جنيه",
@@ -16,63 +20,54 @@ PACKAGES = {
     "2200 💎": "100,000 جنيه"
 }
 
-app_flask = Flask(__name__)
-@app_flask.route('/')
-def home(): return "Free Fire Bot Running!"
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = []
-    for pack, price in PACKAGES.items():
-        keyboard.append([InlineKeyboardButton(f"{pack} - {price}", callback_data=pack)])
-    keyboard.append([InlineKeyboardButton("💬 تواصل", url="https://t.me/YourUsername")])
-    await update.message.reply_text(
-        "🔥 *متجر آلباتشينو لشحن جواهر فري فاير* 🔥\n\n"
-        "💎 شحن سريع - آمن 100% - خلال 5 دقائق\n"
-        "👇 اختر الباقة:",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown'
-    )
+    keyboard = [[InlineKeyboardButton(f"{p} - {pr}", callback_data=p)] for p, pr in PACKAGES.items()]
+    await update.message.reply_text("🔥 *متجر آلباتشينو* 🔥\nاختر الباقة:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 async def choose_pack(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    context.user_data['pack'] = query.data
-    await query.message.reply_text(f"اخترت باقة *{query.data}*\n\n📝 أرسل ID فري فاير حقك:", parse_mode='Markdown')
+    q = update.callback_query
+    await q.answer()
+    context.user_data['pack'] = q.data
+    await q.message.reply_text(f"اخترت {q.data}\n📝 أرسل ID فري فاير:")
     return ASK_ID
 
 async def ask_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['ff_id'] = update.message.text
-    keyboard = [
-        [InlineKeyboardButton("بنكك", callback_data="bankak")],
-        [InlineKeyboardButton("رصيد", callback_data="raseed")]
-    ]
-    await update.message.reply_text(f"تمام ID: `{update.message.text}`\nاختر الدفع:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("بنكك", callback_data="bankak")],[InlineKeyboardButton("رصيد", callback_data="raseed")]]
+    await update.message.reply_text(f"ID: {update.message.text}\nاختر الدفع:", reply_markup=InlineKeyboardMarkup(keyboard))
     return ASK_PAYMENT
 
 async def ask_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    pay_method = query.data
+    q = update.callback_query
+    await q.answer()
     pack = context.user_data['pack']
     ff_id = context.user_data['ff_id']
-    user = query.from_user
-
-    if pay_method == "bankak":
-        await query.message.reply_text("🏦 *بنكك:*\nحساب: 1234567 - محمد\nرسل الاشعار هنا ✅", parse_mode='Markdown')
+    u = q.from_user
+    if q.data == "bankak":
+        await q.message.reply_text("🏦 بنكك: 1234567 - محمد\nرسل الاشعار هنا ✅")
     else:
-        await query.message.reply_text("📱 *رصيد:*\nزين: 090xxxxxxx\nرسل لقطة الشاشة هنا ✅", parse_mode='Markdown')
-
+        await q.message.reply_text("📱 زين: 090xxxxxxx\nرسل لقطة الشاشة هنا ✅")
     try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=f"طلب جديد 🔥\n\n👤 @{user.username} ({user.id})\n📦 {pack}\n🆔 {ff_id}\n💳 {pay_method}")
-    except: pass
+        await context.bot.send_message(chat_id=ADMIN_ID, text=f"طلب جديد 🔥\n👤 @{u.username} ({u.id})\n📦 {pack}\n🆔 {ff_id}\n💳 {q.data}")
+    except Exception as e:
+        print(f"Admin send error: {e}")
     return ConversationHandler.END
 
 def run_bot():
-    app = Application.builder().token(TOKEN).build()
+    if not TOKEN:
+        print("ERROR: BOT_TOKEN IS EMPTY!")
+        return
+    print(f"Starting bot with token ...{TOKEN[-10:]}")
+    application = Application.builder().token(TOKEN).build()
     conv = ConversationHandler(entry_points=[CallbackQueryHandler(choose_pack)], states={ASK_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_id)], ASK_PAYMENT: [CallbackQueryHandler(ask_payment)]}, fallbacks=[])
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(conv)
-    app.run_polling()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(conv)
+    application.run_polling()
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app_flask.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-    app_flask.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    threading.Thread(target=run_flask, daemon=True).start()
+    run_bot()
